@@ -1,0 +1,80 @@
+#!/bin/bash
+
+#PBS -N breakdancer_call_sampleReplace
+#PBS -l nodes=1:ppn=4
+#PBS -l mem=40gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_call.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_call.out
+#PBS -A proj-as0001
+
+module load perl/5.18.2
+
+threads=6
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+tempDir=$workingDir/temp/breakdancer
+outputDir=$workingDir/callers/breakdancer
+output=$outputDir/breakdancer
+inputDir=$rootDir/data/$sample
+input=$inputDir/$sample.hgv.bam
+helperDir=$rootDir/scripts/helpers
+bam2cfg=$helperDir/breakdancer-maxunstable/bam2cfg.pl
+breakdancer2vcf=$helperDir/breakdancer2vcf.py
+progressFile=$workingDir/log/progress.txt
+
+mkdir -p $tempDir $outputDir
+cd $outputDir
+
+if [[ ! -f $input ]]; then
+	echo "File $input does not exist, exit"
+	exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: breakdancer_call.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+$bam2cfg $input > $tempDir/breakdancer.cfg
+cmdFile=$tempDir/breakdancer.cmd
+if [[ -f $cmdFile ]]; then rm $cmdFile; fi
+
+echo "breakdancer-max $tempDir/breakdancer.cfg $input -t > $tempDir/breakdancer-BND.ctx" > $cmdFile
+for chr in {1..22} X Y; do
+	echo "breakdancer-max $tempDir/breakdancer.cfg $input -o $chr > $tempDir/breakdancer-$chr.ctx" >> $cmdFile
+done
+
+parallel -j $threads -a $cmdFile eval
+
+# remove minor chr
+awk '$1~/^#/ || ($1~/[0-9]+|X|Y/ && $4~/[0-9]+|X|Y/)' $tempDir/breakdancer-1.ctx > $output.ctx
+for chr in {2..22} X Y BND; do
+	awk -v FS="\t" -v OFS="\t" '$1!~/^#/ && $1~/[0-9]+|X|Y/ && $4~/[0-9]+|X|Y/' $tempDir/breakdancer-$chr.ctx >> $output.ctx
+done
+
+source activate python2
+$breakdancer2vcf -i $output.ctx -o $output.vcf
+vcf-sort $output.vcf > $output.vcf.2
+mv $output.vcf.2 $output.vcf
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: breakdancer_call, $diffInWord" >> $progressFile
+
+
+
+
+
+
