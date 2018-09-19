@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #PBS -N breakdancer_svtyper_sampleReplace
-#PBS -l nodes=1:ppn=4
+#PBS -l nodes=1:ppn=10
 #PBS -l mem=80gb
 #PBS -q analysis
 #PBS -d /users/hl7/analysis/SV/sample/sampleReplace
@@ -11,26 +11,27 @@
 
 source activate python2
 
-threads=6
+threads=12
 sample=sampleReplace
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample
-tempDir=$workingDir/temp/breakdancer_svtyper
 outputDir=$workingDir/callers/breakdancer
+tempDir=$outputDir/temp/breakdancer_svtyper
 outputFile=$outputDir/breakdancer.svtyper.vcf
 site=$outputDir/breakdancer.vcf
-inputDir=$rootDir/data/$sample
+inputDir=$rootDir/data
 input=$inputDir/$sample.hgv.bam
 progressFile=$workingDir/log/progress.txt
 
 mkdir -p $tempDir
 cd $outputDir
 
+# check input
 for file in $site $input; do
-	if [[ ! -f $file ]]; then
-		echo "File $file does not exist, exit"
-		exit
-	fi
+    if [[ ! -f $file ]]; then
+        echo "File $file does not exist, exit"
+        exit
+    fi
 done
 
 ##########################################################
@@ -56,6 +57,9 @@ if [[ -f $cmdFile ]]; then rm $cmdFile; fi
 
 for chr in BND {1..22} X Y; do
     file=$tempDir/vcfSub.$chr
+    if [[ ! -f $file ]]; then
+        echo "WARNING!!! vcf file $file does not exist"
+    fi
     echo "svtyper -B $input -i $file > $tempDir/svtyper.$chr" >> $cmdFile
 done
 
@@ -63,8 +67,11 @@ parallel -j $threads -a $cmdFile eval
 
 cp $tempDir/svtyper.1 $outputFile
 for chr in {2..22} X Y BND; do
-    awk -v FS="\t" -v OFS="\t" '$1!~/^#/ {print $0}' $tempDir/svtyper.$chr >> $outputFile
+    awk '$1!~/^#/' $tempDir/svtyper.$chr >> $outputFile
 done
+
+vcf-sort -c -p $threads $outputFile > $outputFile.2
+mv $outputFile.2 $outputFile
 
 #############################################################
 
@@ -74,6 +81,11 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: breakdancer_svtyper, $diffInWord" >> $progressFile
+
+
+
+
+
 
 
 

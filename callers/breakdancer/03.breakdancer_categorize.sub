@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#PBS -N breakdancer_categorize_sampleReplace
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=4gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_categorize.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_categorize.out
+#PBS -A proj-as0001
+
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample/callers/breakdancer
+outputDir=$workingDir/categorize
+input=$workingDir/breakdancer.svtyper.vcf
+helperDir=$rootDir/scripts/helpers
+addMateInfo=$helperDir/addMateInfoForBND.py
+progressFile=$workingDir/log/progress.txt
+
+mkdir -p $outputDir
+cd $outputDir
+
+# check input
+if [[ ! -f $input ]]; then
+    echo "File $input does not exist, exit"
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: breakdancer_call.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+## categorize by SV type
+for ty in DEL INS INV ITX CTX; do
+    type="\"$ty\""
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/breakdancer.$ty.vcf
+    if [[ $ty == "CTX" ]]; then
+        $addMateInfo $outputDir/breakdancer.$ty.vcf > $outputDir/breakdancer.$ty.vcf.2
+        mv $outputDir/breakdancer.$ty.vcf.2 $outputDir/breakdancer.$ty.vcf
+    fi
+    if [[ $ty == "DEL" ]] || [[ $ty == "INV" ]]; then
+        bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/breakdancer.$ty.vcf \
+        > $outputDir/breakdancer.$ty.simpleFilter.vcf
+    else
+        cp $outputDir/breakdancer.$ty.vcf $outputDir/breakdancer.$ty.simpleFilter.vcf
+    fi
+done
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: breakdancer_categorize, $diffInWord" >> $progressFile
+
+
+
+
