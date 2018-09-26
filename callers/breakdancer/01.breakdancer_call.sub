@@ -11,13 +11,14 @@
 
 module load perl/5.18.2
 
+tool=breakdancer
 threads=12
 sample=sampleReplace
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample
-outputDir=$workingDir/callers/breakdancer
-tempDir=$outputDir/temp/breakdancer_call
-output=$outputDir/breakdancer
+outputDir=$workingDir/callers/$tool
+tempDir=$outputDir/temp/${tool}_call
+output=$outputDir/$tool
 inputDir=$rootDir/data
 input=$inputDir/$sample.hgv.bam
 helperDir=$rootDir/scripts/helpers
@@ -29,8 +30,8 @@ mkdir -p $tempDir
 cd $outputDir
 
 # check input
-if [[ ! -f $input ]]; then
-    echo "File $input does not exist, exit"
+if [[ ! -f $input ]] || [[ ! -f $input.bai ]]; then
+    echo "File $input or index does not exist, exit"
     exit 1
 fi
 
@@ -39,7 +40,7 @@ fi
 ho=$(hostname)
 start=$(date)
 startTime=$(date -u +"%s")
-echo "Running: breakdancer_call.......... on $ho, from $start" >> $progressFile
+echo "Running: ${tool}_call.......... on $ho, from $start" >> $progressFile
 
 ############################################################
 
@@ -63,7 +64,8 @@ awk '$1!~/^#/ && $1~/^[0-9]+$|^X$|^Y$/ && $4~/^[0-9]+$|^X$|^Y$/' $tempDir/breakd
 
 source activate python2
 $breakdancer2vcf -i $output.ctx -o $output.vcf
-vcf-sort -c -p $threads $output.vcf > $output.vcf.2
+vcf-sort -c -p $threads $output.vcf \
+| awk -v FS="\t" -v OFS="\t" -v s=$sample '$1~/^#CHROM/ {$NF=s} {print $0}' > $output.vcf.2
 mv $output.vcf.2 $output.vcf
 
 #############################################################
@@ -73,7 +75,7 @@ finishTime=$(date -u +"%s")
 diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
-echo "Done: breakdancer_call, $diffInWord" >> $progressFile
+echo "Done: ${tool}_call, $diffInWord" >> $progressFile
 
 
 
