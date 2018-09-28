@@ -1,21 +1,22 @@
 #!/bin/bash
 
-#PBS -N cnvnator_categorize_sampleReplace
+#PBS -N delly_categorize_sampleReplace
 #PBS -l nodes=1:ppn=1
 #PBS -l mem=4gb
 #PBS -q analysis
-#PBS -V
 #PBS -d /users/hl7/analysis/SV/sample/sampleReplace
-#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/cnvnator/cnvnator_categorize.err
-#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/cnvnator/cnvnator_categorize.out
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_categorize.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_categorize.out
 #PBS -A proj-as0001
 
-tool=cnvnator
+tool=delly
 sample=sampleReplace
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample/callers/$tool
 outputDir=$workingDir/categorize
 input=$workingDir/$tool.vcf
+helperDir=$rootDir/scripts/helpers
+addMateInfo=$helperDir/addMateInfoForBND.py
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -37,10 +38,19 @@ echo "Running: ${tool}_call.......... on $ho, from $start" >> $progressFile
 ############################################################
 
 ## categorize by SV type
-for ty in DUP DEL; do
+for ty in DUP DEL INV BND; do
     type="\"$ty\""
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/cnvnator.$ty.vcf
-    cp $outputDir/cnvnator.$ty.vcf $outputDir/cnvnator.$ty.simpleFilter.vcf
+    if [[ $ty == "BND" ]]; then
+        ty=CTX
+    fi
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/delly.$ty.vcf
+    if [[ $ty == "CTX" ]]; then
+        $addMateInfo $outputDir/delly.$ty.vcf | sed "s/SVTYPE==BND/SVTYPE==$ty/" \
+        > $outputDir/delly.$ty.vcf.2
+        mv $outputDir/delly.$ty.vcf.2 $outputDir/delly.$ty.vcf
+    fi
+    bcftools view -f PASS -i '(FMT/GT="0/1" | FMT/GT="1/1") & FMT/FT="PASS"' $outputDir/delly.$ty.vcf \
+    > $outputDir/delly.$ty.simpleFilter.vcf
 done
 
 #############################################################
@@ -51,6 +61,7 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
+
 
 
 

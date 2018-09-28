@@ -1,7 +1,7 @@
 #!/bin/bash
 
 usage () {
-    echo -e "Run cnvnator pipeline on cluster. The only required parameter is -s\n\
+    echo -e "Run delly pipeline on cluster. The only required parameter is -s\n\
 You can also specify from which step to start using -f"
 }
 
@@ -30,7 +30,7 @@ fi
 
 ###############################
 
-tool=cnvnator
+tool=delly
 rootDir=/users/hl7/analysis/SV
 inputDir=$rootDir/data
 input=$inputDir/$sample.hgv.bam
@@ -46,7 +46,7 @@ if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
     exit 1
 fi
 
-## cnvnator
+## delly
 mkdir -p $logDir $scriptDir
 cp $scriptOrigin/* $scriptDir/
 sed -i "s/sampleReplace/$sample/g" $scriptDir/*
@@ -63,6 +63,5 @@ elif [[ $fromStep == "2" ]]; then
 else
     echo "There's no step $fromStep, eixt"; exit 1
 fi
-
 
 

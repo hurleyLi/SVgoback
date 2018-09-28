@@ -1,0 +1,74 @@
+#!/bin/bash
+
+#PBS -N lumpy_preprocess_sampleReplace
+#PBS -l nodes=1:ppn=4
+#PBS -l mem=25gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_preprocess.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_preprocess.out
+#PBS -A proj-as0001
+
+source activate python2
+
+tool=lumpy
+threads=6
+mem_sort=20
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/callers/$tool
+preprocessDir=$outputDir/preprocess
+tempDir=$outputDir/temp/${tool}_preprocess
+inputDir=$rootDir/data
+input=$inputDir/$sample.hgv.bam
+helperDir=$rootDir/scripts/helpers
+extractSplitReads=$helperDir/extractSplitReads_BwaMem
+progressFile=$workingDir/log/progress.txt
+
+mkdir -p $preprocessDir $tempDir
+cd $outputDir
+
+# check input
+if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
+    echo "File $input or index does not exist, exit"
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${tool}_preprocess.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+# Extract the discordant paired-end alignments.
+samtools view -b -F 1294 --threads $threads $input \
+| sambamba sort -t $threads -m ${mem_sort}G --tmpdir $tempDir -o $preprocessDir/discordants.bam /dev/stdin
+err1=$?
+
+# Extract the split-read alignments
+samtools view -h --threads $threads $input \
+| $extractSplitReads -i stdin \
+| samtools view --threads $threads -Sb - \
+| sambamba sort -t $threads -m ${mem_sort}G --tmpdir $tempDir -o $preprocessDir/splitters.bam /dev/stdin
+err2=$?
+
+# check error
+if [[ ! $err1 -eq 0 ]] || [[ ! $err2 -eq 0 ]]; then
+    echo "ERROR: ${tool}_preprocess" >> $progressFile
+    exit 1
+fi
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${tool}_preprocess, $diffInWord" >> $progressFile
+
+

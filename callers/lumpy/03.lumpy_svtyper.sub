@@ -1,17 +1,17 @@
 #!/bin/bash
 
-#PBS -N breakdancer_svtyper_sampleReplace
+#PBS -N lumpy_svtyper_sampleReplace
 #PBS -l nodes=1:ppn=10
 #PBS -l mem=80gb
 #PBS -q analysis
 #PBS -d /users/hl7/analysis/SV/sample/sampleReplace
-#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_svtyper.err
-#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/breakdancer/breakdancer_svtyper.out
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_svtyper.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_svtyper.out
 #PBS -A proj-as0001
 
 source activate python2
 
-tool=breakdancer
+tool=lumpy
 threads=12
 sample=sampleReplace
 rootDir=/users/hl7/analysis/SV
@@ -19,7 +19,7 @@ workingDir=$rootDir/sample/$sample
 outputDir=$workingDir/callers/$tool
 tempDir=$outputDir/temp/${tool}_svtyper
 outputFile=$outputDir/$tool.svtyper.vcf
-site=$outputDir/breakdancer.vcf
+site=$outputDir/$tool.vcf
 inputDir=$rootDir/data
 input=$inputDir/$sample.hgv.bam
 progressFile=$workingDir/log/progress.txt
@@ -50,7 +50,7 @@ for chr in {1..22} X Y BND; do
     cp $tempDir/vcfHeader $tempDir/vcfSub.$chr
 done
 
-awk -v FS="\t" -v OFS="\t" -v tempDir="$tempDir/vcfSub" '$1!~/^#/ {if ($8!~/SVTYPE=CTX/) {print $0 >> tempDir"."$1} 
+awk -v FS="\t" -v OFS="\t" -v tempDir="$tempDir/vcfSub" '$1!~/^#/ {if ($8!~/SVTYPE=BND/) {print $0 >> tempDir"."$1} 
 else {print $0 >> tempDir".BND"}}' $site
 
 cmdFile=$tempDir/svtyperCMD
@@ -89,10 +89,6 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_svtyper, $diffInWord" >> $progressFile
-
-
-
-
 
 
 

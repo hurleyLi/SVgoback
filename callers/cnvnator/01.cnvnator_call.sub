@@ -13,6 +13,7 @@ module load perl/5.18.2
 module load CNVnator
 
 tool=cnvnator
+sample=sampleReplace
 threads=12
 binSize=100
 rootDir=/users/hl7/analysis/SV
@@ -31,7 +32,7 @@ mkdir -p $tempDir
 cd $outputDir
 
 # check input
-if [[ ! -f $input ]] || [[ ! -f $input.bai ]]; then
+if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
     echo "File $input or index does not exist, exit"
     exit 1
 fi
@@ -55,6 +56,12 @@ for contig in {1..22} X Y; do
 done
 
 parallel -j $threads -a $cmdFile eval
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${tool}_call" >> $progressFile
+    exit 1
+fi
 
 cp $tempDir/cnvnator_call.1.vcf $outputFile
 for chr in {2..22} X Y; do

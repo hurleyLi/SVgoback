@@ -1,0 +1,72 @@
+#!/bin/bash
+
+#PBS -N delly_call_sampleReplace
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=16gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_call.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_call.out
+#PBS -A proj-as0001
+
+tool=delly
+
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/callers/$tool
+output=$outputDir/delly.bcf
+vcfOut=$outputDir/delly.vcf
+inputDir=$rootDir/data
+input=$inputDir/$sample.hgv.bam
+helperDir=$rootDir/scripts/helpers
+reference=$helperDir/hs37d5/hs37d5.fa
+excludeFile=$helperDir/human.hg19.excl.tsv
+progressFile=$workingDir/log/progress.txt
+
+mkdir -p $outputDir
+cd $outputDir
+
+# check input
+if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
+    echo "File $input or index does not exist, exit"
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${tool}_call.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+delly call \
+-g $reference \
+-x $excludeFile \
+-q 20 -s 15 -n \
+-o $output $input
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${tool}_call" >> $progressFile
+    exit 1
+fi
+
+bcftools view $output > $vcfOut
+rm $output.csi
+
+vcf-sort -c $vcfOut \
+| awk -v FS="\t" -v OFS="\t" -v s=$sample '$1~/^#CHROM/ {$NF=s} {print $0}' > $vcfOut.2
+mv $vcfOut.2 $vcfOut
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${tool}_call, $diffInWord" >> $progressFile
+

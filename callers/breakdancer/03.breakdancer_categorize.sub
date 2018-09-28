@@ -17,13 +17,14 @@ outputDir=$workingDir/categorize
 input=$workingDir/$tool.svtyper.vcf
 helperDir=$rootDir/scripts/helpers
 addMateInfo=$helperDir/addMateInfoForBND.py
+swapPos=$helperDir/swap_BNDends_vcf.py
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
 cd $outputDir
 
 # check input
-if [[ ! -f $input ]]; then
+if [[ ! -s $input ]]; then
     echo "File $input does not exist, exit"
     exit 1
 fi
@@ -42,7 +43,8 @@ for ty in DEL INS INV ITX CTX; do
     type="\"$ty\""
     bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/breakdancer.$ty.vcf
     if [[ $ty == "CTX" ]]; then
-        $addMateInfo $outputDir/breakdancer.$ty.vcf > $outputDir/breakdancer.$ty.vcf.2
+        $addMateInfo $outputDir/breakdancer.$ty.vcf | $swapPos /dev/stdin \
+        | vcf-sort -c > $outputDir/breakdancer.$ty.vcf.2
         mv $outputDir/breakdancer.$ty.vcf.2 $outputDir/breakdancer.$ty.vcf
     fi
     if [[ $ty == "DEL" ]] || [[ $ty == "INV" ]]; then
@@ -61,7 +63,6 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
-
 
 
 

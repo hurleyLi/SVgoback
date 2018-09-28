@@ -30,7 +30,7 @@ mkdir -p $tempDir
 cd $outputDir
 
 # check input
-if [[ ! -f $input ]] || [[ ! -f $input.bai ]]; then
+if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
     echo "File $input or index does not exist, exit"
     exit 1
 fi
@@ -55,6 +55,12 @@ done
 
 parallel -j $threads -a $cmdFile eval
 
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${tool}_call" >> $progressFile
+    exit 1
+fi
+
 cp $tempDir/breakdancer-1.ctx $output.ctx
 for chr in {2..22} X Y; do
     awk '$1!~/^#/' $tempDir/breakdancer-$chr.ctx >> $output.ctx
@@ -76,9 +82,5 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_call, $diffInWord" >> $progressFile
-
-
-
-
 
  
