@@ -1,26 +1,29 @@
 #!/bin/bash
 
-#PBS -N delly_call_sampleReplace
+#PBS -N tiddit_call_sampleReplace
 #PBS -l nodes=1:ppn=1
 #PBS -l mem=16gb
 #PBS -q analysis
 #PBS -d /users/hl7/analysis/SV/sample/sampleReplace
-#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_call.err
-#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/delly/delly_call.out
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/tiddit/tiddit_call.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/tiddit/tiddit_call.out
 #PBS -A proj-as0001
 
-tool=delly
+source activate python2
+module load zlib
+
+tool=tiddit
 sample=sampleReplace
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample
 outputDir=$workingDir/callers/$tool
-output=$outputDir/$tool.bcf
-vcfOut=$outputDir/$tool.vcf
+output=$outputDir/$tool
+vcfOut=$output.vcf
 inputDir=$rootDir/data
 input=$inputDir/$sample.hgv.bam
 helperDir=$rootDir/scripts/helpers
 reference=$helperDir/hs37d5/hs37d5.fa
-excludeFile=$helperDir/human.hg19.excl.tsv
+tiddit=$helperDir/TIDDIT.py
 progressFile=$workingDir/log/progress.txt
 
 mkdir -p $outputDir
@@ -41,11 +44,7 @@ echo "Running: ${tool}_call.......... on $ho, from $start" >> $progressFile
 
 ############################################################
 
-delly call \
--g $reference \
--x $excludeFile \
--q 20 -s 15 -n \
--o $output $input
+python $tiddit --sv --bam $input -q 20 -o $output --ref $reference
 
 # check error
 if [[ ! $? -eq 0 ]]; then
@@ -53,11 +52,11 @@ if [[ ! $? -eq 0 ]]; then
     exit 1
 fi
 
-bcftools view $output > $vcfOut
-rm $output.csi
-
+# also remove minor chr
 vcf-sort -c $vcfOut \
-| awk -v FS="\t" -v OFS="\t" -v s=$sample '$1~/^#CHROM/ {$NF=s} {print $0}' > $vcfOut.2
+| awk -v FS="\t" -v OFS="\t" -v s=$sample '$1~/^#CHROM/ {$NF=s} {print $0}' \
+| awk '$1~/^#/ || ($1~/^[0-9]+|X|Y$/ && $5!~/GL000|MT|NC_007605|hs37d5/)' \
+> $vcfOut.2
 mv $vcfOut.2 $vcfOut
 
 #############################################################
@@ -68,4 +67,5 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_call, $diffInWord" >> $progressFile
+
 

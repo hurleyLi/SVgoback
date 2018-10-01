@@ -1,0 +1,84 @@
+#!/bin/bash
+
+#PBS -N tiddit_categorize_sampleReplace
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=4gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/tiddit/tiddit_categorize.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/tiddit/tiddit_categorize.out
+#PBS -A proj-as0001
+
+tool=tiddit
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample/callers/$tool
+outputDir=$workingDir/categorize
+input=$workingDir/$tool.vcf
+helperDir=$rootDir/scripts/helpers
+addMateInfo=$helperDir/addMateInfoForBND.py
+progressFile=$rootDir/sample/$sample/log/progress.txt
+
+mkdir -p $outputDir
+cd $outputDir
+
+# check input
+if [[ ! -s $input ]]; then
+    echo "File $input does not exist, exit"
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+## categorize by SV type
+
+
+for ty in DEL DUP TDUP INV BND; do
+    type="\"$ty\""
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/tiddit.$ty.vcf
+    if [[ $ty == "TDUP" ]]; then
+        awk '$1!~/^#/' $outputDir/tiddit.$ty.vcf \
+        | sed "s/SVTYPE==TDUP/SVTYPE==DUP/" >> $outputDir/tiddit.DUP.vcf
+        vcf-sort -c $outputDir/tiddit.DUP.vcf > $outputDir/tiddit.DUP.vcf.2
+        mv $outputDir/tiddit.DUP.vcf.2 $outputDir/tiddit.DUP.vcf
+        rm $outputDir/tiddit.$ty.vcf
+    fi
+    if [[ $ty == "BND" ]]; then
+        $addMateInfo $outputDir/tiddit.$ty.vcf > $outputDir/tiddit.$ty.vcf.2
+        mv $outputDir/tiddit.$ty.vcf.2 $outputDir/tiddit.$ty.vcf
+        awk '$1~/^#/' $outputDir/tiddit.$ty.vcf > $outputDir/tiddit.ITX.vcf
+        cp $outputDir/tiddit.ITX.vcf $outputDir/tiddit.CTX.vcf
+        awk -v FS="\t" -v OFS="\t" -v dir="$outputDir/" '$1!~/^#/ {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; split(info[2],matePos,"="); pos=matePos[2];
+        if ($1==chr && $2<pos) {print $0 >> dir"tiddit.ITX.vcf"} else if ($1>chr) {print $0 >> dir"tiddit.CTX.vcf"}}' $outputDir/tiddit.$ty.vcf
+        
+        rm $outputDir/tiddit.$ty.vcf
+        vcf-sort -c $outputDir/tiddit.ITX.vcf > $outputDir/tiddit.ITX.vcf.2
+        mv $outputDir/tiddit.ITX.vcf.2 $outputDir/tiddit.ITX.vcf
+        vcf-sort -c $outputDir/tiddit.CTX.vcf > $outputDir/tiddit.CTX.vcf.2
+        mv $outputDir/tiddit.CTX.vcf.2 $outputDir/tiddit.CTX.vcf
+    fi
+done
+
+for ty in DEL DUP INV ITX CTX; do
+    bcftools view -f PASS $outputDir/tiddit.$ty.vcf \
+    > $outputDir/tiddit.$ty.simpleFilter.vcf
+done
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
+
+
+

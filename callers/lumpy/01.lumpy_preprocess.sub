@@ -45,14 +45,14 @@ echo "Running: ${tool}_preprocess.......... on $ho, from $start" >> $progressFil
 ############################################################
 
 # Extract the discordant paired-end alignments.
-samtools view -b -F 1294 --threads $threads $input \
+samtools view -b -F 1294 -@ $threads $input \
 | sambamba sort -t $threads -m ${mem_sort}G --tmpdir $tempDir -o $preprocessDir/discordants.bam /dev/stdin
 err1=$?
 
 # Extract the split-read alignments
-samtools view -h --threads $threads $input \
+samtools view -h -@ $threads $input \
 | $extractSplitReads -i stdin \
-| samtools view --threads $threads -Sb - \
+| samtools view -Sb - \
 | sambamba sort -t $threads -m ${mem_sort}G --tmpdir $tempDir -o $preprocessDir/splitters.bam /dev/stdin
 err2=$?
 

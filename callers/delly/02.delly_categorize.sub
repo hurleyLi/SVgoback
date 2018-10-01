@@ -33,7 +33,7 @@ fi
 ho=$(hostname)
 start=$(date)
 startTime=$(date -u +"%s")
-echo "Running: ${tool}_call.......... on $ho, from $start" >> $progressFile
+echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFile
 
 ############################################################
 

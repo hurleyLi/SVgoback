@@ -1,0 +1,74 @@
+#!/bin/bash
+
+#PBS -N lumpy_categorize_sampleReplace
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=4gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_categorize.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/lumpy/lumpy_categorize.out
+#PBS -A proj-as0001
+
+tool=lumpy
+sample=sampleReplace
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample/callers/$tool
+outputDir=$workingDir/categorize
+input=$workingDir/$tool.svtyper.vcf
+helperDir=$rootDir/scripts/helpers
+addMateInfo=$helperDir/addMateInfoForBND.py
+progressFile=$rootDir/sample/$sample/log/progress.txt
+
+mkdir -p $outputDir
+cd $outputDir
+
+# check input
+if [[ ! -s $input ]]; then
+    echo "File $input does not exist, exit"
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFile
+
+############################################################
+
+## categorize by SV type
+for ty in DEL DUP INV BND; do
+    type="\"$ty\""
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/lumpy.$ty.vcf
+    if [[ $ty == "BND" ]]; then
+        $addMateInfo $outputDir/lumpy.$ty.vcf > $outputDir/lumpy.$ty.vcf.2
+        mv $outputDir/lumpy.$ty.vcf.2 $outputDir/lumpy.$ty.vcf
+        awk '$1~/^#/' $outputDir/lumpy.$ty.vcf > $outputDir/lumpy.ITX.vcf
+        cp $outputDir/lumpy.ITX.vcf $outputDir/lumpy.CTX.vcf
+        awk -v FS="\t" -v OFS="\t" -v dir="$outputDir/" '$1!~/^#/ {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; split(info[2],matePos,"="); pos=matePos[2];
+        if ($1==chr && $2<pos) {print $0 >> dir"lumpy.ITX.vcf"} else if ($1>chr) {print $0 >> dir"lumpy.CTX.vcf"}}' $outputDir/lumpy.$ty.vcf
+        
+        rm $outputDir/lumpy.$ty.vcf
+        vcf-sort -c $outputDir/lumpy.ITX.vcf > $outputDir/lumpy.ITX.vcf.2
+        mv $outputDir/lumpy.ITX.vcf.2 $outputDir/lumpy.ITX.vcf
+        vcf-sort -c $outputDir/lumpy.CTX.vcf > $outputDir/lumpy.CTX.vcf.2
+        mv $outputDir/lumpy.CTX.vcf.2 $outputDir/lumpy.CTX.vcf
+    fi
+done
+
+for ty in DUP DEL INV ITX CTX; do
+    bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/lumpy.$ty.vcf \
+    > $outputDir/lumpy.$ty.simpleFilter.vcf
+done
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
+
+

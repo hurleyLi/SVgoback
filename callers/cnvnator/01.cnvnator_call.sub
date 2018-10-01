@@ -72,4 +72,13 @@ vcf-sort -c -p $threads $outputFile \
 | awk -v FS="\t" -v OFS="\t" -v s=$sample '$1~/^#CHROM/ {$NF=s} {print $0}' > $outputFile.2
 mv $outputFile.2 $outputFile
 
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${tool}_call, $diffInWord" >> $progressFile
+
 

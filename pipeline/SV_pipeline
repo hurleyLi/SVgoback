@@ -1,0 +1,97 @@
+#!/bin/bash
+
+usage () {
+    echo -e "Run SV pipeline on cluster. The only required parameter is -s\n\
+Default is to run all callers for all steps.\n\
+But for each caller, you can specify from which step to start using, or not run at all.\n\
+Support caller:\n\
+    breakdancer: -b [0-3]\n\
+    cnvnator:    -c [0-2]\n\
+    delly:       -d [0-2]\n\
+    lumpy:       -l [0-4]\n\
+    manta:       -m [0-2]\n\
+    tiddit:      -t [0-2]\n\
+version: 1.0"
+}
+
+haveInput=false
+step_breakdancer=1
+step_cnvnator=1
+step_delly=1
+step_lumpy=1
+step_manta=1
+step_tiddit=1
+
+options=":hs:b:c:d:l:m:t:"
+
+while getopts $options opt
+do
+  case $opt in
+    h ) usage; exit;;
+    s ) sample=$OPTARG; haveInput=true;;
+    b ) step_breakdancer=$OPTARG;;
+    c ) step_cnvnator=$OPTARG;;
+    d ) step_delly=$OPTARG;;
+    l ) step_lumpy=$OPTARG;;
+    m ) step_manta=$OPTARG;;
+    t ) step_tiddit=$OPTARG;;
+    \?) echo "Unknown option: -$OPTARG" >&2; usage; exit 1;;
+    : ) echo "Missing option argument for -$OPTARG" >&2; usage; exit 1;;
+    * ) echo "Unimplemented option: -$OPTARG" >&2; usage; exit 1;;
+  esac
+done
+
+###############################
+
+if [[ $haveInput == "false" ]]; then
+    usage; exit 1
+fi
+
+###############################
+
+rootDir=/users/hl7/analysis/SV
+inputDir=$rootDir/data
+input=$inputDir/$sample.hgv.bam
+scriptDir=$rootDir/scripts/pipeline
+
+# check input bam file
+if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
+    echo "File $input or index does not exist, exit"
+    exit 1
+fi
+
+# breakdancer
+if [[ ! $step_breakdancer -eq 0 ]]; then
+    $scriptDir/submit_breakdancer.sh -s $sample -f $step_breakdancer
+fi
+# cnvnator
+if [[ ! $step_cnvnator -eq 0 ]]; then
+    $scriptDir/submit_cnvnator.sh -s $sample -f $step_cnvnator
+fi
+# delly
+if [[ ! $step_delly -eq 0 ]]; then
+    $scriptDir/submit_delly.sh -s $sample -f $step_delly
+fi
+# lumpy
+if [[ ! $step_lumpy -eq 0 ]]; then
+    $scriptDir/submit_lumpy.sh -s $sample -f $step_lumpy
+fi
+# manta
+if [[ ! $step_manta -eq 0 ]]; then
+    $scriptDir/submit_manta.sh -s $sample -f $step_manta
+fi
+# tiddit
+if [[ ! $step_tiddit -eq 0 ]]; then
+    $scriptDir/submit_tiddit.sh -s $sample -f $step_tiddit
+fi
+
+
+
+
+
+
+
+
+
+
+
