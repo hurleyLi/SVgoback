@@ -12,8 +12,6 @@
 
 tool=cnvnator
 sample=sampleReplace
-sizeMin=100
-sizeMax=1000000
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample/callers/$tool
 outputDir=$workingDir/categorize

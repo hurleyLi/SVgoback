@@ -2,7 +2,7 @@
 SV calling initiated from the GOBACK project, but become a general pipeline on HGSC cluster
 
 ## Caller
-Further filter by excluding RLCR region
+Further filter by excluding RLCR region. ITX and CTX are in pgl format, the others are in bed format.
 
 ### breakdancer
 * Calls: DEL INS INV ITX CTX

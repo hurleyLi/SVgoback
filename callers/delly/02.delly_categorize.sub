@@ -17,6 +17,7 @@ outputDir=$workingDir/categorize
 input=$workingDir/$tool.vcf
 helperDir=$rootDir/scripts/helpers
 addMateInfo=$helperDir/addMateInfoForBND.py
+excludeRegion=$helperDir/RLCRs_no_Repeat_Masker.txt
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -43,14 +44,32 @@ for ty in DUP DEL INV BND; do
     if [[ $ty == "BND" ]]; then
         ty=CTX
     fi
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/delly.$ty.vcf
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/$tool.$ty.vcf
     if [[ $ty == "CTX" ]]; then
-        $addMateInfo $outputDir/delly.$ty.vcf | sed "s/SVTYPE==BND/SVTYPE==$ty/" \
-        > $outputDir/delly.$ty.vcf.2
-        mv $outputDir/delly.$ty.vcf.2 $outputDir/delly.$ty.vcf
+        $addMateInfo $outputDir/$tool.$ty.vcf | sed "s/SVTYPE==BND/SVTYPE==$ty/" \
+        > $outputDir/$tool.$ty.vcf.2
+        mv $outputDir/$tool.$ty.vcf.2 $outputDir/$tool.$ty.vcf
     fi
-    bcftools view -f PASS -i '(FMT/GT="0/1" | FMT/GT="1/1") & FMT/FT="PASS"' $outputDir/delly.$ty.vcf \
-    > $outputDir/delly.$ty.simpleFilter.vcf
+done
+
+## simple and further filter
+source activate python2
+for ty in DUP DEL INV CTX; do
+    bcftools view -f PASS -i '(FMT/GT="0/1" | FMT/GT="1/1") & FMT/FT="PASS"' $outputDir/$tool.$ty.vcf \
+    > $outputDir/$tool.$ty.simpleFilter.vcf
+    if [[ $ty == "CTX" ]]; then
+        bcftools query -f '%CHROM\t%POS\t%INFO/MATE_CHR\t%INFO/MATE_END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+        | awk -v OFS="\t" '{print $1,$2-1,$2,$3,$4-1,$4}' \
+        | pgltools formatbedpe \
+        | pgltools intersect1D -stdInA -b $excludeRegion -v \
+        | sort -k1V,1V -k2n,2n -k3n,3n -k4V,4V -k5n,5n -k6n,6n \
+        > $outputDir/$tool.$ty.furtherFilter.pgl
+    else
+        bcftools query -f '%CHROM\t%POS\t%INFO/END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+        | bedtools intersect -a stdin -b $excludeRegion -v \
+        | sort -k1V,1V -k2n,2n -k3n,3n \
+        > $outputDir/$tool.$ty.furtherFilter.bed
+    fi
 done
 
 #############################################################
@@ -61,7 +80,6 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
-
 
 
 

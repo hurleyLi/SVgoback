@@ -17,6 +17,7 @@ outputDir=$workingDir/categorize
 input=$workingDir/$tool.svtyper.vcf
 helperDir=$rootDir/scripts/helpers
 addMateInfo=$helperDir/addMateInfoForBND.py
+excludeRegion=$helperDir/RLCRs_no_Repeat_Masker.txt
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -40,26 +41,44 @@ echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFil
 ## categorize by SV type
 for ty in DEL DUP INV BND; do
     type="\"$ty\""
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/lumpy.$ty.vcf
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/$tool.$ty.vcf
     if [[ $ty == "BND" ]]; then
-        $addMateInfo $outputDir/lumpy.$ty.vcf > $outputDir/lumpy.$ty.vcf.2
-        mv $outputDir/lumpy.$ty.vcf.2 $outputDir/lumpy.$ty.vcf
-        awk '$1~/^#/' $outputDir/lumpy.$ty.vcf > $outputDir/lumpy.ITX.vcf
-        cp $outputDir/lumpy.ITX.vcf $outputDir/lumpy.CTX.vcf
+        $addMateInfo $outputDir/$tool.$ty.vcf > $outputDir/$tool.$ty.vcf.2
+        mv $outputDir/$tool.$ty.vcf.2 $outputDir/$tool.$ty.vcf
+        awk '$1~/^#/' $outputDir/$tool.$ty.vcf > $outputDir/$tool.ITX.vcf
+        cp $outputDir/$tool.ITX.vcf $outputDir/$tool.CTX.vcf
         awk -v FS="\t" -v OFS="\t" -v dir="$outputDir/" '$1!~/^#/ {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; split(info[2],matePos,"="); pos=matePos[2];
-        if ($1==chr && $2<pos) {print $0 >> dir"lumpy.ITX.vcf"} else if ($1>chr) {print $0 >> dir"lumpy.CTX.vcf"}}' $outputDir/lumpy.$ty.vcf
+        if ($1==chr && $2<pos) {print $0 >> dir"$tool.ITX.vcf"} else if ($1>chr) {print $0 >> dir"$tool.CTX.vcf"}}' $outputDir/$tool.$ty.vcf
         
-        rm $outputDir/lumpy.$ty.vcf
-        vcf-sort -c $outputDir/lumpy.ITX.vcf > $outputDir/lumpy.ITX.vcf.2
-        mv $outputDir/lumpy.ITX.vcf.2 $outputDir/lumpy.ITX.vcf
-        vcf-sort -c $outputDir/lumpy.CTX.vcf > $outputDir/lumpy.CTX.vcf.2
-        mv $outputDir/lumpy.CTX.vcf.2 $outputDir/lumpy.CTX.vcf
+        rm $outputDir/$tool.$ty.vcf
+        vcf-sort -c $outputDir/$tool.ITX.vcf > $outputDir/$tool.ITX.vcf.2
+        mv $outputDir/$tool.ITX.vcf.2 $outputDir/$tool.ITX.vcf
+        vcf-sort -c $outputDir/$tool.CTX.vcf > $outputDir/$tool.CTX.vcf.2
+        mv $outputDir/$tool.CTX.vcf.2 $outputDir/$tool.CTX.vcf
     fi
 done
 
+## simple and further filter
 for ty in DUP DEL INV ITX CTX; do
-    bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/lumpy.$ty.vcf \
-    > $outputDir/lumpy.$ty.simpleFilter.vcf
+    bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/$tool.$ty.vcf \
+    > $outputDir/$tool.$ty.simpleFilter.vcf
+done
+
+for ty in DUP DEL INV; do
+    bcftools query -f '%CHROM\t%POS\t%INFO/END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | bedtools intersect -a stdin -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n \
+    > $outputDir/$tool.$ty.furtherFilter.bed
+done
+
+source activate python2
+for ty in ITX CTX; do
+    bcftools query -f '%CHROM\t%POS\t%INFO/MATE_CHR\t%INFO/MATE_END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | awk -v OFS="\t" '{print $1,$2-1,$2,$3,$4-1,$4}' \
+    | pgltools formatbedpe \
+    | pgltools intersect1D -stdInA -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n -k4V,4V -k5n,5n -k6n,6n \
+    > $outputDir/$tool.$ty.furtherFilter.pgl
 done
 
 #############################################################

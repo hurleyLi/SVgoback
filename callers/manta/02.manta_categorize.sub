@@ -43,15 +43,33 @@ for ty in DUP DEL INV INS BND; do
     if [[ $ty == "BND" ]]; then
         ty=CTX
     fi
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/manta.$ty.vcf
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/$tool.$ty.vcf
     if [[ $ty == "CTX" ]]; then
-        $addMateInfo $outputDir/manta.$ty.vcf | sed "s/SVTYPE==BND/SVTYPE==$ty/" \
+        $addMateInfo $outputDir/$tool.$ty.vcf | sed "s/SVTYPE==BND/SVTYPE==$ty/" \
         | awk -v FS="\t" -v OFS="\t" '{if ($1~/^#/) {print $0} else {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; if ($1>chr) {print $0}}}' \
-        > outputDir/manta.$ty.vcf.2
-        mv $outputDir/manta.$ty.vcf.2 $outputDir/manta.$ty.vcf
+        > $outputDir/$tool.$ty.vcf.2
+        mv $outputDir/$tool.$ty.vcf.2 $outputDir/$tool.$ty.vcf
     fi
-    bcftools view -f PASS -i 'FMT/FT="PASS"' $outputDir/manta.$ty.vcf \
-    > $outputDir/manta.$ty.simpleFilter.vcf
+done
+
+## simple and further filter
+source activate python2
+for ty in DUP DEL INV INS CTX; do
+    bcftools view -f PASS -i 'FMT/FT="PASS"' $outputDir/$tool.$ty.vcf \
+    > $outputDir/$tool.$ty.simpleFilter.vcf
+    if [[ $ty == "CTX" ]]; then
+        bcftools query -f '%CHROM\t%POS\t%INFO/MATE_CHR\t%INFO/MATE_END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+        | awk -v OFS="\t" '{print $1,$2-1,$2,$3,$4-1,$4}' \
+        | pgltools formatbedpe \
+        | pgltools intersect1D -stdInA -b $excludeRegion -v \
+        | sort -k1V,1V -k2n,2n -k3n,3n -k4V,4V -k5n,5n -k6n,6n \
+        > $outputDir/$tool.$ty.furtherFilter.pgl
+    else
+        bcftools query -f '%CHROM\t%POS\t%INFO/END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+        | bedtools intersect -a stdin -b $excludeRegion -v \
+        | sort -k1V,1V -k2n,2n -k3n,3n \
+        > $outputDir/$tool.$ty.furtherFilter.bed
+    fi
 done
 
 #############################################################
@@ -62,7 +80,6 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
-
 
 
 
