@@ -12,10 +12,14 @@
 
 tool=cnvnator
 sample=sampleReplace
+sizeMin=100
+sizeMax=1000000
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample/callers/$tool
 outputDir=$workingDir/categorize
 input=$workingDir/$tool.vcf
+helperDir=$rootDir/scripts/helpers
+excludeRegion=$helperDir/RLCRs_no_Repeat_Masker.txt
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -39,8 +43,16 @@ echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFil
 ## categorize by SV type
 for ty in DUP DEL; do
     type="\"$ty\""
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/cnvnator.$ty.vcf
-    cp $outputDir/cnvnator.$ty.vcf $outputDir/cnvnator.$ty.simpleFilter.vcf
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/$tool.$ty.vcf
+    cp $outputDir/$tool.$ty.vcf $outputDir/$tool.$ty.simpleFilter.vcf
+done
+
+## further filter
+for ty in DUP DEL; do
+    bcftools query -f '%CHROM\t%POS\t%INFO/END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | bedtools intersect -a stdin -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n \
+    > $outputDir/$tool.$ty.furtherFilter.bed
 done
 
 #############################################################
@@ -51,6 +63,5 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
-
 
 

@@ -1,0 +1,197 @@
+#!/usr/bin/env python
+
+import pandas as pd
+import numpy as np
+from pybedtools import BedTool
+import sys
+import argparse
+
+sys.setrecursionlimit(9999999)
+
+parser = argparse.ArgumentParser(description='Merge bed file by reciprocal overlap')
+parser.add_argument('-i',metavar='FILENAME', required=True,
+                    help='Input bed file')
+parser.add_argument('-r',metavar='RATIO', required=True,
+                    help='Overlap ratio')
+parser.add_argument('-c',metavar='COLUMN', default = None,
+                    help='columns to collapse on, separate by comma')
+parser.add_argument('--noheader', dest='haveHeader', action='store_false', default = True,
+                    help='Do not output header')
+
+args = parser.parse_args()
+
+######################################
+### helpers
+class Position:
+    def __init__(self, start, end, index):
+        self.start = start
+        self.end = end
+        self.index = index
+        self.size = self.end - self.start
+    
+    def isOverlap(self, positionB):
+        if (positionB.end < self.start) or (positionB.start > self.end):
+            return False
+        else:
+            return True
+
+    def overlapSize(self, positionB):
+        if self.isOverlap(positionB):
+            pos = sorted([self.start, self.end, positionB.start, positionB.end])
+            overlap = pos[2] - pos[1]
+            return overlap
+        else:
+            return 0
+    
+    def overlapRatio(self, positionB):
+        return self.overlapSize(positionB) / self.size
+    
+    def equalTo(self, positionB):
+        if (self.start == positionB.start) and (self.end == positionB.end):
+            return True
+        else:
+            return False
+
+def update_list(li, index1, index2):
+    """
+    update a list of list by merging element from index1 and index2
+    and remove them from the list
+    """
+    if index1 < index2:
+        temp = index1
+        index1 = index2
+        index2 = temp
+    ele1 = li.pop(index1)
+    ele2 = li.pop(index2)
+    newEle = list(set(ele1).union(set(ele2)))
+    return [newEle] + li
+
+def merge_list_of_list(inputList, outputList = None):
+    """
+    from a lists of a list, merge all overlapping elements into new list
+    For instance, from [[1,2,3],[3,4],[4,5,6],[7,8]] you will get
+    [[1,2,3,4,5,6],[7,8]]
+    Order is not guranteed
+    """
+    if outputList is None:
+        outputList = []
+    if len(inputList) > 1:
+        firstEle = inputList[0]
+        for i in range(1,len(inputList)):
+            if set(firstEle).intersection(set(inputList[i])):
+                inputList = update_list(inputList, 0, i)
+                break
+            else:
+                if i == (len(inputList)-1):
+                    outputList.append(inputList.pop(0))
+        merge_list_of_list(inputList, outputList)
+    elif len(inputList) == 1:
+        outputList.append(inputList[0])
+    return outputList
+
+def gather_by_recip_overlap(starts, ends, indexes, ratio):
+    """
+    Specific.
+    designed for df, when you provide lists of starts,ends,indexes,
+    will determine whether they can be merged by reciprocal overlap given a ratio
+    elements are separated by ','
+    
+    update: fixed a bug to add 
+    pos2.overlapRatio(pos1) > ratio
+    
+    update2: fix a bug where the last positin is missing if it's not
+    reciprocal overlap with anyone else before him
+    
+    update3: add <equal to> option
+    """
+    indexes = [int(k) for k in str(indexes).split(',')]
+    starts = [int(k) for k in str(starts).split(',')]
+    ends = [int(k) for k in str(ends).split(',')]
+    poses = [ Position(s,e,i) for s,e,i in zip(starts,ends,indexes) ]
+
+    if len(poses) == 1:
+        return ','.join([str(x) for x in indexes])
+
+    else:
+        gatherAll = []
+        for i in range(0,len(poses)-1):
+            pos1 = poses[i]
+            gatherTemp = [pos1.index]
+            for j in range(i+1, len(poses)):
+                pos2 = poses[j]
+                if pos1.equalTo(pos2) or ((pos1.overlapRatio(pos2) > ratio) and (pos2.overlapRatio(pos1) > ratio)):
+                    gatherTemp.append(pos2.index)
+            gatherAll.append(gatherTemp)
+        gatherAll.append([poses[-1].index])
+        
+        return '|'.join([','.join([str(y) for y in x]) for x in merge_list_of_list(gatherAll)])
+
+##################################################################
+def call_recipOverlap(inputF, otherCol, overlapRatio, haveHeader):
+    df = pd.read_csv(inputF, sep = '\t', header = None)
+    df['index'] = list(range(df.shape[0]))
+    useCol = '1,2,3'
+    if otherCol is not None:
+        useCol = useCol + ',' + str(otherCol)
+    useOper = ','.join(['count'] + ['collapse'] * (len(useCol.split(','))-1))
+    useName = [ 'column_' + str(x+7) for x in list(range(len(otherCol.split(','))))]
+    useName = ['chrom', 'start', 'end', 'indexes', 'starts', 'ends'] + useName
+
+    genes = BedTool.from_dataframe(df)
+    genes_merge = genes.merge(c=useCol, o=useOper)
+    df_merge = genes_merge.to_dataframe(names = useName)
+    df_merge['indexes'] = df_merge.apply(lambda x: ','.join([str(i) for i in list(range(x['indexes']))]), axis =1)
+    df_merge['recipOver'] = df_merge.apply(lambda x: gather_by_recip_overlap(x['starts'],x['ends'],x['indexes'], 
+                                            overlapRatio), axis = 1)
+    header = ['chr','start','end','count']
+    if otherCol is not None:
+        for col in otherCol.split(','):
+            header.append('Collapse_' + str(col))
+        for col in otherCol.split(','):
+            header.append('Dinstinct_' + str(col))
+        for col in otherCol.split(','):
+            header.append('CountDinstinct_' + str(col))
+
+    # write output
+    if haveHeader:
+        print('\t'.join(header))
+    for n, row in df_merge.iterrows():
+        chr = str(row['chrom'])
+        recipOver = row['recipOver'].split('|')
+        starts = [int(x) for x in row['starts'].split(',')]
+        ends = [int(x) for x in row['ends'].split(',')]
+        if otherCol is not None:
+            collectOtherCols = [] # use later
+            for col in range(6,(df_merge.shape[1]-1)):
+                collectOtherCols.append(row[col].split(','))
+
+        for group in recipOver:
+            idxes = [int(x) for x in group.split(',')]
+            count = len(idxes)
+            if count == 1:
+                idx = idxes[0]
+                start = str(starts[idx])
+                end = str(ends[idx])
+            else:
+                start = str(int(round(np.median([starts[i] for i in idxes]))))
+                end = str(int(round(np.median([ends[i] for i in idxes]))))
+
+            collectAllCol = [chr,start,end,str(count)]
+            if otherCol is not None:
+                uniqueCounts = []
+                for col in collectOtherCols:
+                    collectAllCol.append(','.join([col[i] for i in idxes]))
+                for col in collectOtherCols:
+                    uniques = sorted(list(np.unique([col[i] for i in idxes])))
+                    collectAllCol.append(','.join(uniques))
+                    uniqueCounts.append(str(len(uniques)))
+                collectAllCol = collectAllCol + uniqueCounts
+            print('\t'.join(collectAllCol))
+
+
+##################################################################
+
+if __name__ == "__main__":
+    call_recipOverlap(args.i, args.c, float(args.r), args.haveHeader)
+
+

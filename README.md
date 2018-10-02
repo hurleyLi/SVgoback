@@ -2,10 +2,13 @@
 SV calling initiated from the GOBACK project, but become a general pipeline on HGSC cluster
 
 ## Caller
+Further filter by excluding RLCR region
+
 ### breakdancer
 * Calls: DEL INS INV ITX CTX
 * SVtyper genotyped (Does not genotype ITX CTX INS)
-* Filter: for DEL and INV, based on SVtyper, genotype 0/1 or 1/1, and QUAL>1, others no filter
+* Simple filter: for __DEL INV__, based on SVtyper, genotype 0/1 or 1/1, and QUAL>1;
+for __INS ITX CTX__, require DP > 10
 
 01. breakdancer_call.sub
 02. breakdancer_svtyper.sub
@@ -14,7 +17,7 @@ SV calling initiated from the GOBACK project, but become a general pipeline on H
 ### cnvnator
 * Calls: DEL DUP (also CNV based on read-depth)
 * Use its own genotyper
-* No filtering applied afterwards
+* No simple filter applied
 
 01. cnvnator_call.sub
 02. cnvnator_categorize.sub
@@ -22,7 +25,7 @@ SV calling initiated from the GOBACK project, but become a general pipeline on H
 ### delly
 * Calls: DEL DUP (tandem only, also CNV based on read-depth) INV CTX (as BND)
 * Use its own genotyper
-* Filter: based on genotype 0/1 or 1/1, and PASS for the site and for the sample
+* Simple filter: based on genotype 0/1 or 1/1, and PASS for the site and for the sample
 
 01. delly_call.sub
 02. delly_categorize.sub
@@ -52,5 +55,59 @@ SV calling initiated from the GOBACK project, but become a general pipeline on H
 
 01. tiddit_call.sub
 02. tiddit_categorize.sub
+
+## Event
+### DEL DUP INS INV
+Further filter by limiting the size within (100bp,1Mb). And remove calls overlapping with RLCRs_no_Repeat_Masker.txt
+
+#### DEL
+* breakdancer
+* cnvnator
+* delly
+* lumpy
+* manta
+* tiddit
+
+#### DUP (both disparse and tandem)
+* cnvnator
+* delly
+* lumpy
+* manta
+* tiddit
+
+#### INV
+* breakdancer
+* delly
+* lumpy
+* manta
+* tiddit
+
+#### INS
+* breakdancer
+* manta
+
+### ITX CTX
+Remove calls overlapping with RLCRs_no_Repeat_Masker.txt
+
+Output is in pgl format
+
+#### ITX
+* breakdancer
+* delly
+* lumpy
+* manta
+* tiddit
+
+#### CTX
+* breakdancer
+* delly
+* lumpy
+* manta
+* tiddit
+
+### CNV
+* cnvnator
+* delly
+* tiddit
 
 

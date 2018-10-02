@@ -11,6 +11,7 @@
 
 tool=breakdancer
 sample=sampleReplace
+minDP=10
 rootDir=/users/hl7/analysis/SV
 workingDir=$rootDir/sample/$sample/callers/$tool
 outputDir=$workingDir/categorize
@@ -18,6 +19,7 @@ input=$workingDir/$tool.svtyper.vcf
 helperDir=$rootDir/scripts/helpers
 addMateInfo=$helperDir/addMateInfoForBND.py
 swapPos=$helperDir/swap_BNDends_vcf.py
+excludeRegion=$helperDir/RLCRs_no_Repeat_Masker.txt
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -41,18 +43,48 @@ echo "Running: ${tool}_categorize.......... on $ho, from $start" >> $progressFil
 ## categorize by SV type
 for ty in DEL INS INV ITX CTX; do
     type="\"$ty\""
-    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/breakdancer.$ty.vcf
+    bcftools view -i "INFO/SVTYPE==$type" $input > $outputDir/$tool.$ty.vcf
     if [[ $ty == "CTX" ]]; then
-        $addMateInfo $outputDir/breakdancer.$ty.vcf | $swapPos /dev/stdin \
-        | vcf-sort -c > $outputDir/breakdancer.$ty.vcf.2
-        mv $outputDir/breakdancer.$ty.vcf.2 $outputDir/breakdancer.$ty.vcf
+        $addMateInfo $outputDir/$tool.$ty.vcf | $swapPos /dev/stdin \
+        | vcf-sort -c > $outputDir/$tool.$ty.vcf.2
+        mv $outputDir/$tool.$ty.vcf.2 $outputDir/$tool.$ty.vcf
     fi
-    if [[ $ty == "DEL" ]] || [[ $ty == "INV" ]]; then
-        bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/breakdancer.$ty.vcf \
-        > $outputDir/breakdancer.$ty.simpleFilter.vcf
+done
+
+## simple and further filter
+for ty in DEL INV INS; do
+    if [[ $ty == "INS" ]]; then
+        bcftools view -i "FMT/DP>$minDP" $outputDir/$tool.$ty.vcf \
+        > $outputDir/$tool.$ty.simpleFilter.vcf
     else
-        cp $outputDir/breakdancer.$ty.vcf $outputDir/breakdancer.$ty.simpleFilter.vcf
+        bcftools view -i '(FMT/GT="0/1" | FMT/GT="1/1") & QUAL>1' $outputDir/$tool.$ty.vcf \
+        > $outputDir/$tool.$ty.simpleFilter.vcf
     fi
+    bcftools query -f '%CHROM\t%POS\t%INFO/END\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | bedtools intersect -a stdin -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n \
+    > $outputDir/$tool.$ty.furtherFilter.bed
+fi
+
+for ty in ITX CTX; do
+    bcftools view -i "FMT/DP>$minDP" $outputDir/$tool.$ty.vcf \
+    > $outputDir/$tool.$ty.simpleFilter.vcf
+done
+
+source activate python2
+for ty in ITX; do
+    bcftools query -f '%CHROM\t%POS\t%INFO/END\t[%DP]\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | pgltools formatbedpe \
+    | pgltools intersect1D -stdInA -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n -k5n,5n -k6n,6n \
+    > $outputDir/$tool.$ty.furtherFilter.pgl
+done
+for ty in CTX; do
+    bcftools query -f '%CHROM\t%POS\t%INFO/MATE_CHR\t%INFO/MATE_END\t[%DP]\n' $outputDir/$tool.$ty.simpleFilter.vcf \
+    | pgltools formatbedpe \
+    | pgltools intersect1D -stdInA -b $excludeRegion -v \
+    | sort -k1V,1V -k2n,2n -k3n,3n -k4V,4V -k5n,5n -k6n,6n \
+    > $outputDir/$tool.$ty.furtherFilter.pgl
 done
 
 #############################################################
@@ -63,6 +95,5 @@ diff=$(($finishTime-$startTime))
 hour=$(($diff/3600))
 diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
 echo "Done: ${tool}_categorize, $diffInWord" >> $progressFile
-
 
 
