@@ -1,0 +1,167 @@
+#!/bin/bash
+
+#PBS -N DEL_inheritance_sampleReplace
+#PBS -l nodes=1:ppn=8
+#PBS -l mem=32gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/inheritance.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/inheritance.out
+#PBS -A proj-as0001
+
+sample=sampleReplace
+event=DEL
+threads=10
+filter=2
+overlapRatio=0.3 # for stat report only
+nonOverlapRatio=0.7 # for stat report only
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/events/$event
+tempDir=$outputDir/temp/${event}_inheritance
+helperDir=$rootDir/scripts/helpers
+infoFile=$helperDir/goback.info
+familyID=`grep "$sample" $infoFile | awk '{print $4}'`
+progressFile=$workingDir/log/progress.events.txt
+
+mkdir -p $tempDir
+cd $outputDir
+
+# check input
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    input=$outputDir/selfRecipRatio.$ratio/stack.filter.recipOverlap
+    if [[ ! -s $input ]]; then
+        echo "File $input does not exist, exit" >&2
+        echo "ERROR: ${event}_inheritance" >> $progressFile
+        exit 1
+    fi
+done
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${event}_inheritance.......... on $ho, from $start" >> $progressFile
+
+###########################################################
+
+## build list of samples
+awk 'NR!=1 && $10=="YES"' $infoFile > $tempDir/goodSample.info
+famSize=`awk -v fam=$familyID '$4==fam' $tempDir/goodSample.info | wc -l`
+
+awk -v sample=$sample '$2!=sample {print $2}' $tempDir/goodSample.info > $tempDir/allOther.list
+awk -v fam=$familyID '$4!=fam {print $2}' $tempDir/goodSample.info > $tempDir/nonFamily.list
+
+# stack calls from the above list
+for list in allOther nonFamily; do
+    if [[ -f $tempDir/$list.stack.bed ]]; then rm $tempDir/$list.stack.bed; fi
+    while read s; do
+        inputS=$rootDir/sample/$s/events/$event/stack.bed
+        awk -v OFS="\t" -v s=$s '{print $0,s}' $inputS >> $tempDir/$list.stack.bed
+    done < $tempDir/$list.list
+    sort -k1,1 -k2n,2n -k3n,3n -k5,5 -k4,4 $tempDir/$list.stack.bed > $tempDir/$list.stack.bed.temp
+    mv $tempDir/$list.stack.bed.temp $tempDir/$list.stack.bed
+done
+
+# for otherFamily, use the bed file after reciprocal overlap
+if [[ $famSize -gt 1 ]]; then
+    awk -v fam=$familyID -v sample=$sample '$4==fam && $2!=sample {print $2}' $tempDir/goodSample.info > $tempDir/otherFamily.list
+    for ratio_other in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+        if [[ -f $tempDir/otherFamily.stack.$ratio_other.bed ]]; then rm $tempDir/otherFamily.stack.$ratio_other.bed; fi
+        while read s; do
+            inputS=$rootDir/sample/$s/events/$event/selfRecipRatio.$ratio_other/stack.filter.recipOverlap
+            awk -v OFS="\t" -v s=$s -v fil=$filter '$7>=fil {print $1,$2,$3,$6,s}' $inputS >> $tempDir/otherFamily.stack.$ratio_other.bed
+        done < $tempDir/otherFamily.list
+        sort -k1,1 -k2n,2n -k3n,3n -k5,5 -k4,4 $tempDir/otherFamily.stack.$ratio_other.bed > $tempDir/otherFamily.stack.$ratio_other.bed.temp
+        mv $tempDir/otherFamily.stack.$ratio_other.bed.temp $tempDir/otherFamily.stack.$ratio_other.bed
+    done
+fi
+
+# intersection
+cmdFile=$tempDir/inheritanceCMD
+if [[ -f $cmdFile ]]; then rm $cmdFile; fi
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    outputD=$outputDir/selfRecipRatio.$ratio
+    inputF=$outputD/stack.filter.recipOverlap
+    awk -v fil=$filter '$7>=fil' $inputF > $inputF.fil$filter
+    inputF=$outputD/stack.filter.recipOverlap.fil$filter
+
+    ## find private SV
+    mkdir -p $outputD/private
+    for ratio_private in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+        echo "bedtools intersect -a $inputF -b $tempDir/allOther.stack.bed -v -f $ratio_private -r > $outputD/private/$ratio_private.bed" >> $cmdFile
+    done
+
+    ## find family SV
+    if [[ $famSize -gt 1 ]]; then
+        ## for family members, using the same self reciprocal ratio as the sample, and it's filtered
+        mkdir -p $outputD/family_specific
+        for ratio_fam in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+            echo "bedtools intersect -a $inputF -b $tempDir/otherFamily.stack.$ratio.bed -u -f $ratio_fam -r > $outputD/family_specific/family$ratio_fam.bed" >> $cmdFile
+        done
+    fi
+done
+
+parallel -j $threads -a $cmdFile eval
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${event}_inheritance" >> $progressFile
+    exit 1
+fi
+
+## find family-specific SV
+if [[ $famSize -gt 1 ]]; then
+    cmdFile=$tempDir/famSpecificCMD
+    if [[ -f $cmdFile ]]; then rm $cmdFile; fi
+    for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+        outputD=$outputDir/selfRecipRatio.$ratio
+        inputF=$outputD/stack.filter.recipOverlap.fil$filter  
+        for ratio_fam in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+            for ratio_nonfam in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+                echo "bedtools intersect -a $outputD/family_specific/family$ratio_fam.bed \
+                -b $tempDir/nonFamily.stack.bed -v -f $ratio_nonfam -r \
+                > $outputD/family_specific/family$ratio_fam.nonFamily$ratio_nonfam.bed" >> $cmdFile
+            done
+        done
+    done
+fi
+
+parallel -j $threads -a $cmdFile eval
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${event}_inheritance" >> $progressFile
+    exit 1
+fi
+
+# get stat
+statOut=$outputDir/inheritance.stat
+if [[ -f $statOut ]]; then rm $statOut; fi
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    outputD=$outputDir/selfRecipRatio.$ratio
+    inputF=$outputD/stack.filter.recipOverlap.fil$filter
+    total=`wc -l $inputF | awk '{print $1}'`
+    private=`wc -l $outputD/private/$nonOverlapRatio.bed | awk '{print $1}'`
+    if [[ $famSize -gt 1 ]]; then
+        in_family=`wc -l $outputD/family_specific/family$overlapRatio.bed | awk '{print $1}'`
+        fam_specific=`wc -l $outputD/family_specific/family$overlapRatio.nonFamily$nonOverlapRatio.bed | awk '{print $1}'`
+    else
+        in_family=NA
+        fam_specific=NA
+    fi
+    echo -e "$ratio\t$total\t$private\t$in_family\t$fam_specific" >> $statOut
+done
+sed -i "1iself_reciprocal\tprivate\tin_family\tfamily_specific" $statOut
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${event}_inheritance, $diffInWord" >> $progressFile
+
+

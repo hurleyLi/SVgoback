@@ -31,7 +31,8 @@ cd $outputDir
 
 # check input
 if [[ ! -s $input ]] || [[ ! -s $input.bai ]]; then
-    echo "File $input or index does not exist, exit"
+    echo "File $input or index does not exist, exit" >&2
+    echo "ERROR: ${tool}_call" >> $progressFile
     exit 1
 fi
 

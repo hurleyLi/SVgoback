@@ -27,7 +27,8 @@ cd $outputDir
 
 # check input
 if [[ ! -s $input ]]; then
-    echo "File $input does not exist, exit"
+    echo "File $input does not exist, exit" >&2
+    echo "ERROR: ${tool}_categorize" >> $progressFile
     exit 1
 fi
 
@@ -64,7 +65,7 @@ for ty in DEL INV INS; do
     | bedtools intersect -a stdin -b $excludeRegion -v \
     | sort -k1V,1V -k2n,2n -k3n,3n \
     > $outputDir/$tool.$ty.furtherFilter.bed
-fi
+done
 
 for ty in ITX CTX; do
     bcftools view -i "FMT/DP>$minDP" $outputDir/$tool.$ty.vcf \

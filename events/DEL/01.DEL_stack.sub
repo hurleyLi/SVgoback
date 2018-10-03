@@ -1,0 +1,85 @@
+#!/bin/bash
+
+#PBS -N DEL_stack_sampleReplace
+#PBS -l nodes=1:ppn=8
+#PBS -l mem=64gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/stack.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/stack.out
+#PBS -A proj-as0001
+
+# Stack all the filtered SV calls, 
+# and merge them together by reciprocal overlapping
+
+sample=sampleReplace
+event=DEL
+threads=9
+callers=(breakdancer cnvnator delly lumpy manta tiddit)
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/events/$event
+tempDir=$outputDir/temp/${event}_stack
+output=$outputDir/stack.bed
+helperDir=$rootDir/scripts/helpers
+mergeBedByReciprocal=$helperDir/mergeBedByReciprocal
+progressFile=$workingDir/log/progress.events.txt
+
+mkdir -p $tempDir
+cd $outputDir
+
+# check input
+for caller in ${callers[@]}; do
+    input=$workingDir/callers/$caller/categorize/$caller.$event.furtherFilter.bed
+    if [[ ! -s $input ]]; then
+        echo "File $input does not exist, exit" >&2
+        echo "ERROR: ${event}_stack" >> $progressFile
+        exit 1
+    fi
+done
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${event}_stack.......... on $ho, from $start" >> $progressFile
+
+###########################################################
+
+if [[ -f $output ]]; then rm $output; fi
+for caller in ${callers[@]}; do
+    input=$workingDir/callers/$caller/categorize/$caller.$event.furtherFilter.bed
+    awk -v OFS="\t" -v caller=$caller '{print $0,caller}' $input >> $output
+done
+
+sort -k1,1 -k2n,2n -k3n,3n -k4,4 $output > $output.2
+mv $output.2 $output
+
+## reciprocal overlap
+cmdFile=$tempDir/stackCMD
+if [[ -f $cmdFile ]]; then rm $cmdFile; fi
+
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    mkdir -p $outputDir/selfRecipRatio.$ratio
+    echo "$mergeBedByReciprocal -i $output -r $ratio -c 4 --noheader | sort -k1V,1V -k2n,2n -k3n,3n > $outputDir/selfRecipRatio.$ratio/stack.filter.recipOverlap" >> $cmdFile
+done
+
+parallel -j $threads -a $cmdFile eval
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${event}_stack" >> $progressFile
+    exit 1
+fi
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${event}_stack, $diffInWord" >> $progressFile
+
+

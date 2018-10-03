@@ -25,7 +25,8 @@ cd $outputDir
 
 # check input
 if [[ ! -s $input ]]; then
-    echo "File $input does not exist, exit"
+    echo "File $input does not exist, exit" >&2
+    echo "ERROR: ${tool}_categorize" >> $progressFile
     exit 1
 fi
 

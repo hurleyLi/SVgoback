@@ -110,4 +110,29 @@ Output is in pgl format
 * delly
 * tiddit
 
+## Inheritance
+### Private
+* The SV does not exist in any other samples
+* TODO: confirm using genotyping
+
+### Family specific
+* The SV overlap with at least one other family member, but not other samples outside the family
+* TODO: confirm using genotyping
+
+### Denovo candidate for proband
+* The SV does not exist in any healthy controls.
+(Only run for probands, different between Private is whether in other probands or not)
+* TODO: confirm using genotyping
+
+### Recessive candidate for proband
+From family specific SV, genotyping to select SV that are 1/1 in proband, 0/1 in parents, and not 1/1 in sibling
+* TODO: extend the genotyping candidate to family-specific SV found in all family members
+
+### Compound het candidate for proband
+TODO later
+
+
+
+
+
 

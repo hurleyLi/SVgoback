@@ -1,0 +1,94 @@
+#!/bin/bash
+
+#PBS -N DEL_getStat_sampleReplace
+#PBS -l nodes=1:ppn=1
+#PBS -l mem=8gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/getStat.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/getStat.out
+#PBS -A proj-as0001
+
+sample=sampleReplace
+event=DEL
+callers=(breakdancer cnvnator delly lumpy manta tiddit)
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/events/$event
+output=$outputDir/stat.txt
+input=$outputDir/stack.bed
+progressFile=$workingDir/log/progress.events.txt
+
+mkdir -p $outputDir
+cd $outputDir
+
+# check input
+if [[ ! -s $input ]]; then
+    echo "File $input does not exist, exit" >&2
+    echo "ERROR: ${event}_getStat" >> $progressFile
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${event}_getStat.......... on $ho, from $start" >> $progressFile
+
+###########################################################
+
+## number and median size of SV called by each caller
+echo -e "caller\tcount\tmedian_size" > $output
+for caller in ${callers[@]}; do
+    count=`awk -v caller=$caller '$4==caller' $input | wc -l`
+    median=`awk -v caller=$caller '$4==caller {print $3-$2}' $input | getStatistics - 1 median`
+    echo -e "$caller\t$count\t$median" >> $output
+done
+
+## determine caller overlap
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    file=$outputDir/selfRecipRatio.$ratio/stack.filter.recipOverlap
+    total=`wc -l $file | awk '{print $1}'`
+    fileStat=$file.stat
+    if [[ -f $fileStat ]]; then rm $fileStat; fi
+    header="caller uniqueCall includeOther includeByOther"
+    for caller1 in ${callers[@]}; do
+        header="$header includeBy_$caller1"
+        # called by caller1
+        count_caller1=`grep $caller1 $file | wc -l`
+        # called by other callers, may or may not overlap with caller1
+        count_allOther=`awk -v caller1=$caller1 '!($4==1 && $5==caller1)' $file | wc -l`
+        # called by both caller1 and other callers
+        count_includeOther=`grep $caller1 $file | awk '$4>1' | wc -l`
+        # unique call called by caller1
+        count_unique=`awk -v caller1=$caller1 '$4==1 && $5==caller1' $file | wc -l`
+        # percentage of unique call of the total SV
+        pct_unique=`echo "$count_unique $total" | awk '{printf "%.5f",$1/$2}'`
+        # percentage of SV called by other callers that are also captured by caller1 
+        pct_includeOther=`echo "$count_includeOther $count_allOther" | awk '{printf "%.5f",$1/$2}'`
+        # percentage of SV called by caller1 that are also captured by othe callers
+        pct_includeByOther=`echo "$count_includeOther $count_caller1" | awk '{printf "%.5f",$1/$2}'`
+        echo -en "$caller1\t$pct_unique\t$pct_includeOther\t$pct_includeByOther" >> $fileStat
+        
+        for caller2 in ${callers[@]}; do
+            count_caller2=`grep $caller1 $file | grep $caller2 | wc -l`
+            pct_includeByCaller2=`echo "$count_caller2 $count_caller1" | awk '{printf "%.5f",$1/$2}'`
+            echo -en "\t$pct_includeByCaller2" >> $fileStat
+        done
+        echo "" >> $fileStat
+    done
+    sed "1i$header" $fileStat | tr ' ' '\t' > $fileStat.2
+    mv $fileStat.2 $fileStat
+done
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${event}_stack, $diffInWord" >> $progressFile
+
+

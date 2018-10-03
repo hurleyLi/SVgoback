@@ -17,6 +17,7 @@ outputDir=$workingDir/categorize
 input=$workingDir/$tool.vcf
 helperDir=$rootDir/scripts/helpers
 addMateInfo=$helperDir/addMateInfoForBND.py
+excludeRegion=$helperDir/RLCRs_no_Repeat_Masker.txt
 progressFile=$rootDir/sample/$sample/log/progress.txt
 
 mkdir -p $outputDir
@@ -24,7 +25,8 @@ cd $outputDir
 
 # check input
 if [[ ! -s $input ]]; then
-    echo "File $input does not exist, exit"
+    echo "File $input does not exist, exit" >&2
+    echo "ERROR: ${tool}_categorize" >> $progressFile
     exit 1
 fi
 

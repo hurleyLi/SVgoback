@@ -30,7 +30,8 @@ cd $outputDir
 # check input
 for file in $site $input; do
     if [[ ! -s $file ]]; then
-        echo "File $file does not exist, exit"
+        echo "File $file does not exist, exit" >&2
+        echo "ERROR: ${tool}_svtyper" >> $progressFile
         exit
     fi
 done

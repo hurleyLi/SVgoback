@@ -25,7 +25,8 @@ cd $outputDir
 
 # check input
 if [[ ! -s $input ]]; then
-    echo "File $input does not exist, exit"
+    echo "File $input does not exist, exit" >&2
+    echo "ERROR: ${tool}_categorize" >> $progressFile
     exit 1
 fi
 
@@ -54,8 +55,8 @@ for ty in DEL DUP TDUP INV BND; do
         mv $outputDir/$tool.$ty.vcf.2 $outputDir/$tool.$ty.vcf
         awk '$1~/^#/' $outputDir/$tool.$ty.vcf > $outputDir/$tool.ITX.vcf
         cp $outputDir/$tool.ITX.vcf $outputDir/$tool.CTX.vcf
-        awk -v FS="\t" -v OFS="\t" -v dir="$outputDir/" '$1!~/^#/ {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; split(info[2],matePos,"="); pos=matePos[2];
-        if ($1==chr && $2<pos) {print $0 >> dir"$tool.ITX.vcf"} else if ($1>chr) {print $0 >> dir"$tool.CTX.vcf"}}' $outputDir/$tool.$ty.vcf
+        awk -v FS="\t" -v OFS="\t" -v dir="$outputDir/$tool" '$1!~/^#/ {split($8,info,";"); split(info[1],mateChr,"="); chr=mateChr[2]; split(info[2],matePos,"="); pos=matePos[2];
+        if ($1==chr && $2<pos) {print $0 >> dir".ITX.vcf"} else if ($1>chr) {print $0 >> dir".CTX.vcf"}}' $outputDir/$tool.$ty.vcf
         
         rm $outputDir/$tool.$ty.vcf
         vcf-sort -c $outputDir/$tool.ITX.vcf > $outputDir/$tool.ITX.vcf.2

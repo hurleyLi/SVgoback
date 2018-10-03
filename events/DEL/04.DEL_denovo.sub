@@ -1,0 +1,114 @@
+#!/bin/bash
+
+#PBS -N DEL_denovo_sampleReplace
+#PBS -l nodes=1:ppn=8
+#PBS -l mem=32gb
+#PBS -q analysis
+#PBS -d /users/hl7/analysis/SV/sample/sampleReplace
+#PBS -e /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/denovo.err
+#PBS -o /users/hl7/analysis/SV/sample/sampleReplace/log/DEL/denovo.out
+#PBS -A proj-as0001
+
+sample=sampleReplace
+event=DEL
+threads=10
+filter=2
+rootDir=/users/hl7/analysis/SV
+workingDir=$rootDir/sample/$sample
+outputDir=$workingDir/events/$event
+tempDir=$outputDir/temp/${event}_denovo
+helperDir=$rootDir/scripts/helpers
+infoFile=$helperDir/goback.info
+role=`grep "$sample" $infoFile | awk '{print $5}'`
+progressFile=$workingDir/log/progress.events.txt
+
+mkdir -p $tempDir
+cd $outputDir
+
+# check input
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    input=$outputDir/selfRecipRatio.$ratio/stack.filter.recipOverlap
+    if [[ ! -s $input ]]; then
+        echo "File $input does not exist, exit" >&2
+        echo "ERROR: ${event}_denovo" >> $progressFile
+        exit 1
+    fi
+    if [[ ! -s $input.fil$filter ]]; then
+        awk -v fil=$filter '$7>=fil' $input > $input.fil$filter
+    fi
+done
+
+if [[ $role != "Proband" ]]; then
+    echo "Only accept Proband for denovo analysis, exit" >&2
+    echo "ERROR: ${event}_denovo" >> $progressFile
+    exit 1
+fi
+
+##########################################################
+
+ho=$(hostname)
+start=$(date)
+startTime=$(date -u +"%s")
+echo "Running: ${event}_denovo.......... on $ho, from $start" >> $progressFile
+
+###########################################################
+
+## build list of samples
+awk 'NR!=1 && $10=="YES" && ($5~/Father|Mother|Sibling/) {print $2}' $infoFile > $tempDir/allHealthy.list
+if [[ -f $tempDir/allHealthy.stack.bed ]]; then rm $tempDir/allHealthy.stack.bed; fi
+while read s; do
+    inputS=$rootDir/sample/$s/events/$event/stack.bed
+    awk -v OFS="\t" -v s=$s '{print $0,s}' $inputS >> $tempDir/allHealthy.stack.bed
+done < $tempDir/allHealthy.list
+sort -k1,1 -k2n,2n -k3n,3n -k5,5 -k4,4 $tempDir/allHealthy.stack.bed > $tempDir/allHealthy.stack.bed.temp
+mv $tempDir/allHealthy.stack.bed.temp $tempDir/allHealthy.stack.bed
+
+# intersection
+cmdFile=$tempDir/denovoCMD
+if [[ -f $cmdFile ]]; then rm $cmdFile; fi
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    outputD=$outputDir/selfRecipRatio.$ratio
+    inputF=$outputD/stack.filter.recipOverlap.fil$filter
+
+    ## find denovo SV
+    mkdir -p $outputD/denovo
+    for ratio_denovo in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+        echo "bedtools intersect -a $inputF -b $tempDir/allHealthy.stack.bed -v -f $ratio_denovo -r > $outputD/denovo/$ratio_denovo.bed" >> $cmdFile
+    done
+done
+
+parallel -j $threads -a $cmdFile eval
+
+# check error
+if [[ ! $? -eq 0 ]]; then
+    echo "ERROR: ${event}_denovo" >> $progressFile
+    exit 1
+fi
+
+# get stat
+statOut=$outputDir/denovo.stat
+if [[ -f $statOut ]]; then rm $statOut; fi
+header=selfRatio
+for ratio in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+    header="$header denovoRatio_$ratio"
+    echo -n "self_$ratio" >> $statOut
+    outputD=$outputDir/selfRecipRatio.$ratio
+    for ratio_denovo in 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9; do
+        denovo=`wc -l $outputD/denovo/$ratio_denovo.bed | awk '{print $1}'`
+        echo -en "\t$denovo" >> $statOut
+    done
+    echo "" >> $statOut
+done
+sed "1i$header" $statOut | tr ' ' '\t' > $statOut.2
+mv $statOut.2 $statOut
+
+#############################################################
+
+finish=$(date)
+finishTime=$(date -u +"%s")
+diff=$(($finishTime-$startTime))
+hour=$(($diff/3600))
+diffInWord=`echo "$hour hours $((($diff-$hour*3600)/60)) minutes and $((($diff-$hour*3600)%60)) seconds elapsed"`
+echo "Done: ${event}_denovo, $diffInWord" >> $progressFile
+
+

@@ -31,7 +31,8 @@ cd $outputDir
 # check input
 for file in $input $input.bai $preprocessDir/discordants.bam $preprocessDir/splitters.bam; do
     if [[ ! -s $file ]]; then
-        echo "File $file does not exist, exit"
+        echo "File $file does not exist, exit" >&2
+        echo "ERROR: ${tool}_call" >> $progressFile
         exit 1
     fi
 done
